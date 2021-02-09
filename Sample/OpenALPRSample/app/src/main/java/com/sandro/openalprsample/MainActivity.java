@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -47,6 +48,8 @@ import org.openalpr.model.Results;
 import org.openalpr.model.ResultsError;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -133,6 +136,31 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * returns File ref. to internally saved image
+     */
+    private static File saveToInternalStorage(Bitmap bitmapImage, Context context) {
+        ContextWrapper cw = new ContextWrapper(context.getApplicationContext());
+        // path to /data/data/com.awesomeproject/app_data/imageDir
+        File directory = cw.getDir("imageDir", Context.MODE_PRIVATE);
+        File mypath = new File(directory, "frame.jpg");
+
+        FileOutputStream fos = null;
+        try {
+            fos = new FileOutputStream(mypath);
+            bitmapImage.compress(Bitmap.CompressFormat.PNG, 100, fos);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                fos.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return mypath;
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if ((requestCode == REQUEST_IMAGE || requestCode == REQUEST_FILE) && resultCode == Activity.RESULT_OK) {
@@ -145,9 +173,22 @@ public class MainActivity extends AppCompatActivity {
 
             if (requestCode == REQUEST_FILE) {
                 if (data != null && data.getData() != null) {
-                    String path = Environment.getExternalStorageDirectory().getPath() + "/" + data.getData().getLastPathSegment().split(":")[1];
-                    imageFile = new File(path);
-                    Picasso.with(MainActivity.this).invalidate(imageFile);
+                    Uri imageUri = data.getData();
+                    if (imageUri != null) {
+                        List<String> uriPath = imageUri.getPathSegments();
+                        if (uriPath.size() > 0) {
+                            long imageId = Long.parseLong(uriPath.get(uriPath.size() - 1).split(":")[1]);
+                            Bitmap imageBitmap = MediaStore.Images.Thumbnails.getThumbnail(
+                                    getApplicationContext().getContentResolver(),
+                                    imageId,
+                                    MediaStore.Images.Thumbnails.MINI_KIND,
+                                    null);
+                            if(imageBitmap != null && imageBitmap.getByteCount() > 0) {
+                                imageFile = saveToInternalStorage(imageBitmap, getApplicationContext());
+                                Picasso.with(MainActivity.this).invalidate(imageFile);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -163,7 +204,7 @@ public class MainActivity extends AppCompatActivity {
                 public void run() {
 
                     int candidates = txtCandidatesNum.getText().toString().isEmpty()? 5 : Integer.parseInt((txtCandidatesNum.getText().toString()));
-                    String result = OpenALPR.Factory.create(MainActivity.this, ANDROID_DATA_DIR).recognizeWithCountryRegionNConfig(txtCountry.getText().toString(), txtRegion.getText().toString(), imageFile.getAbsolutePath(), openAlprConfFile, candidates);
+                    String result = OpenALPR.Factory.create(MainActivity.this, ANDROID_DATA_DIR).recognizeWithCountryRegionNConfig(txtCountry.getText().toString(), "", imageFile.getAbsolutePath(), openAlprConfFile, candidates);
                     Log.d("OPEN ALPR", result);
 
                     try {
